@@ -208,11 +208,10 @@ function saveIPforUser(userIp,userId){
 
   pool.query(
     "insert into ip_table(ip_address, id_user) values ($1, $2) on conflict (ip_address, id_user) do nothing",
-    //"INSERT INTO ip_table(ip_address,id_user) VALUES ($1,$2)",
     [ip,id],
     (err,result)=>{
-    console.log(err);
-    console.log(result);
+    //console.log(err);
+    //console.log(result);
        if(err)
        {
            //res.send({ message: "rezultat logowania error" });
@@ -222,6 +221,92 @@ function saveIPforUser(userIp,userId){
 }
 );
 
+
+}
+
+function addIPFail(ip,status){
+
+
+  if(status){
+   // console.log("Sukces");
+    pool.query(
+      "UPDATE ip_table SET fail_count = 0 WHERE ip_address=$1",
+      [ip],
+      (err,result)=>{
+      //console.log(err);
+      //console.log(result);
+         if(err)
+         {
+             //res.send({ message: "rezultat logowania error" });
+         }else{
+           // res.send(result);
+         }
+  }
+  );
+  }else{
+    //console.log("Porazka");
+    pool.query(
+      "UPDATE ip_table SET fail_count = fail_count+1 WHERE ip_address=$1",
+      [ip],
+      (err,result)=>{
+      //console.log(err);
+      //console.log(result);
+         if(err)
+         {
+             //res.send({ message: "rezultat logowania error" });
+         }else{
+           // res.send(result);
+         }
+  }
+  );
+  }
+  
+}
+
+function getIpFails(ip){
+  let wynik = "Test";
+  let wynik2 = "Testowy"
+  pool.query(
+    "SELECT ip_address, fail_count from ip_table where ip_address=$1 group by ip_address,fail_count",
+    [ip],
+    (err,result)=>{
+    //console.log(err);
+    console.log(result.rows[0].fail_count);
+    if(result.rows[0].fail_count+1 < 2){
+//tutaj info o banie 
+    }else{
+      // tutaj logowanie 
+    }
+       if(err)
+       {
+           //res.send({ message: "rezultat logowania error" });
+       }else{
+         // res.send(result);
+       }
+}
+);
+
+}
+
+
+
+function banIP(ip,addedTime){
+
+  const banTime = getCurrentDate(addedTime);
+  pool.query(
+    "UPDATE ip_table SET ban_date = $1 WHERE ip_address=$2",
+    [banTime,ip],
+    (err,result)=>{
+    //console.log(err);
+    //console.log(result);
+       if(err)
+       {
+           //res.send({ message: "rezultat logowania error" });
+       }else{
+         // res.send(result);
+       }
+}
+);
 
 }
 
@@ -351,67 +436,103 @@ app.post('/register', (req,res)=>{
 
 // logowanie hmac test -- dziala 
 
+
 app.post('/login', async (req,res)=>{
    
   const login =req.body.user_login;
   const password =req.body.password;
   const date = getCurrentDate(0);
   const ip = await getUserIp();
+  //const ip_fails = getIpFails(ip);
   //console.log(ip);
-   pool.query(
-       "SELECT * FROM user_table WHERE user_login =$1",
-       [login],
-       async (err,result)=> {
-           if(err)
-          {
-             res.send({ err: err});
-           } 
-           
-           if(result.rows.length >0){
 
-              
-              if(result.rows[0].ban_date > new Date()){
-                console.log("Pozostało " + (result.rows[0].ban_date - new Date())/1000 + " sekund blokady użytkownika");
-              }else {
-                console.log(result.rows[0]);
-              if (decrypt(result.rows[0].password_hash,login) === password) {
-                let loginres = true;
-                //console.log(date,ip,loginres);
-                saveIPforUser(ip,result.rows[0].id);
-                addLoginFail(result.rows[0].id,loginres);
-                loginResult(date,loginres,ip,result.rows[0].id);
-                
-               // console.log(result.rows[0].user_login)
-               //console.log(req.body)
-                  req.session.login = result;
-                  //console.log(req.session);
-                  res.send(result);
-                 
-                } else {
-                  let loginres = false;
-                 // console.log(date,ip,loginres);
+  pool.query(
+    "SELECT ip_address,fail_count,ban_date from ip_table where ip_address=$1 group by ip_address,fail_count,ban_date",
+    [ip],
+    (err,result)=>{
+    //console.log(err);
+    console.log(result.rows[0].fail_count);
+    if(result.rows[0].ban_date > new Date()){
+//tutaj info o banie 
+console.log("Pozostało " + (result.rows[0].ban_date - new Date())/1000 + " sekund blokady adresu IP");
+    }else{
+      // tutaj logowanie 
+      pool.query(
+        "SELECT * FROM user_table WHERE user_login =$1",
+        [login],
+        async (err,result)=> {
+            if(err)
+           {
+              res.send({ err: err});
+            } 
+            
+            if(result.rows.length >0){
+               
+               //console.log(result);
+               if(result.rows[0].ban_date > new Date()){
+                 console.log("Pozostało " + (result.rows[0].ban_date - new Date())/1000 + " sekund blokady użytkownika");
+               }else {
+                 console.log(result.rows[0]);
+               if (decrypt(result.rows[0].password_hash,login) === password) {
+                 let loginres = true;
+                 //console.log(date,ip,loginres);
                  saveIPforUser(ip,result.rows[0].id);
+                 addIPFail(ip,loginres);
                  addLoginFail(result.rows[0].id,loginres);
-                 if((result.rows[0].fail_count+1) === 2){
-                  banUser(login,5);
+                 loginResult(date,loginres,ip,result.rows[0].id);
+                 
+                // console.log(result.rows[0].user_login)
+                //console.log(req.body)
+                   req.session.login = result;
+                   //console.log(req.session);
+                   res.send(result);
+                  
+                 } else {
+                   let loginres = false;
+                  // console.log(date,ip,loginres);
+                  saveIPforUser(ip,result.rows[0].id);
+                  addIPFail(ip,loginres);
+                  addLoginFail(result.rows[0].id,loginres);
+                  if((result.rows[0].fail_count+1) === 2){
+                   banUser(login,5);
+                  }
+                  if((result.rows[0].fail_count+1) === 3){
+                   banUser(login,10);
+                  }
+                  if((result.rows[0].fail_count+1) > 3){
+                   banUser(login,30);
+                  }
+                   loginResult(date,loginres,ip,result.rows[0].id);
+                   res.send({ message: "Zły login lub hasło" });
                  }
-                 if((result.rows[0].fail_count+1) === 3){
-                  banUser(login,10);
-                 }
-                 if((result.rows[0].fail_count+1) > 3){
-                  banUser(login,30);
-                 }
-                  loginResult(date,loginres,ip,result.rows[0].id);
-                  res.send({ message: "Zły login lub hasło" });
-                }
-              }
-              
-            } else {
-              
-              res.send({ message: "Użytkownik nie istnieje" });
-            }
-          }
-        );
+               }
+               
+             } else {
+               
+               res.send({ message: "Użytkownik nie istnieje" });
+             }
+           }
+         );
+    }
+    if((result.rows[0].fail_count+1) === 2){
+      banIP(ip,5);
+     }
+     if((result.rows[0].fail_count+1) === 3){
+      banIP(ip,10);
+     }
+     if((result.rows[0].fail_count+1) > 3){
+      banIP(ip,30);
+     }
+       if(err)
+       {
+           //res.send({ message: "rezultat logowania error" });
+       }else{
+         // res.send(result);
+       }
+}
+);
+
+   
       });
 
 
